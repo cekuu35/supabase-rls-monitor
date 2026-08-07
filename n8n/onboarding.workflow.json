@@ -1,0 +1,129 @@
+{
+  "name": "RLS Guard \u2014 onboarding (Gumroad sale)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gumroad-sale",
+        "responseMode": "onReceived",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "wh-onb",
+      "name": "Gumroad sale ping",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "gumroad-sale"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Gumroad sends a form-encoded \"ping\" on each sale. Provision the buyer.\nconst item = $input.first().json || {};\nconst b = item.body || item;\nconst email = b.email || b.purchaser_email || \"\";\nconst product = b.product_name || b.product_permalink || \"\";\nconst recurrence = b.recurrence || \"monthly\";\nconst isOurs = /rls guard/i.test(product) || /yvdwv/i.test(String(b.product_permalink || \"\"));\n\nif (!email || !isOurs) {\n  return [{ json: { skip: true, reason: \"not our product or no email\", product, email } }];\n}\n\nconst WEBHOOK = ($env && $env.N8N_PUBLIC_URL ? $env.N8N_PUBLIC_URL : \"https://YOUR-N8N\") + \"/webhook/rls-guard\";\nconst TOKEN = ($env && $env.RLS_GUARD_TOKEN) ? $env.RLS_GUARD_TOKEN : \"test-token\";\n\nconst welcome =\n\"Welcome to RLS Guard \u2014 your Supabase security monitor is live.\\n\\n\" +\n\"Add this one step to your CI/deploy pipeline. After each deploy it scans your\\n\" +\n\"schema and flags any RLS hole before it reaches production:\\n\\n\" +\n\"  supabase db dump --schema-only > schema.sql\\n\" +\n\"  curl -sS -X POST \\\"\" + WEBHOOK + \"\\\" \\\\\\n\" +\n\"    -H \\\"Content-Type: text/plain\\\" \\\\\\n\" +\n\"    -H \\\"x-rls-token: \" + TOKEN + \"\\\" \\\\\\n\" +\n\"    -H \\\"x-rls-customer: \" + email + \"\\\" \\\\\\n\" +\n\"    --data-binary @schema.sql\\n\\n\" +\n\"The response is a plain-English report ranked by severity, with the exact SQL to\\n\" +\n\"fix each finding. If a CRITICAL or HIGH issue is found, you also get an email alert.\\n\\n\" +\n\"Tip: make your build fail on a critical finding \u2014\\n\" +\n\"  curl ... | grep -q CRITICAL && { echo 'RLS hole - blocking deploy'; exit 1; } || true\\n\\n\" +\n\"Questions about any finding? Just reply to this email.\\n\\n\" +\n\"\u2014 RLS Guard\";\n\nreturn [{ json: { skip: false, email, product, recurrence, subject: \"Your RLS Guard is live \u2014 1-step setup\", body: welcome } }];\n"
+      },
+      "id": "code-onb",
+      "name": "Build welcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-onb",
+      "name": "Our product?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "rls-guard@YOUR-DOMAIN.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "email-onb",
+      "name": "Send welcome",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1080,
+        220
+      ]
+    }
+  ],
+  "connections": {
+    "Gumroad sale ping": {
+      "main": [
+        [
+          {
+            "node": "Build welcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build welcome": {
+      "main": [
+        [
+          {
+            "node": "Our product?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Our product?": {
+      "main": [
+        [
+          {
+            "node": "Send welcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "id": "onboarding",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

@@ -1,0 +1,85 @@
+{
+  "name": "RLS Guard \u2014 offboarding (Gumroad cancel)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gumroad-cancel",
+        "responseMode": "onReceived",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "wh-off",
+      "name": "Gumroad cancel ping",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "gumroad-cancel"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Gumroad cancellation / subscription-ended ping -> tell the seller to revoke.\nconst item = $input.first().json || {};\nconst b = item.body || item;\nconst email = b.email || b.purchaser_email || \"unknown\";\nconst cancelled = b.cancelled === \"true\" || b.cancelled === true ||\n                  !!b.subscription_cancelled_at || !!b.subscription_ended_at ||\n                  /cancel/i.test(String(b.resource_name || \"\"));\nconst product = b.product_name || b.product_permalink || \"\";\nreturn [{ json: {\n  email, product, cancelled,\n  subject: \"[RLS Guard] Cancellation: \" + email,\n  body: \"Customer \" + email + \" cancelled their RLS Guard subscription (\" + product + \").\\n\" +\n        \"Action: rotate the shared token or remove their entry from the customer store so their webhook stops working.\" } }];\n"
+      },
+      "id": "code-off",
+      "name": "Build revoke notice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "rls-guard@YOUR-DOMAIN.com",
+        "toEmail": "={{ $env.RLS_ALERT_EMAIL || 'ops@example.com' }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "email-off",
+      "name": "Notify seller",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        800,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Gumroad cancel ping": {
+      "main": [
+        [
+          {
+            "node": "Build revoke notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build revoke notice": {
+      "main": [
+        [
+          {
+            "node": "Notify seller",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "id": "offboarding",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

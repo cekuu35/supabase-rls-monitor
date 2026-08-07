@@ -1,0 +1,12 @@
+# Private — never publish
+realscan/
+outreach/
+n8n/start-n8n.cmd
+
+# temp / build
+__pycache__/
+*.pyc
+_harness*.js
+_t.js
+.n8n/
+node_modules/

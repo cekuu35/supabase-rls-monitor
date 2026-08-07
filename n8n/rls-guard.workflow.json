@@ -1,0 +1,129 @@
+{
+  "name": "RLS Guard \u2014 deploy scan",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rls-guard",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "wh-guard",
+      "name": "Deploy webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "rls-guard"
+    },
+    {
+      "parameters": {
+        "jsCode": "/*\n * RLS Guard - detection engine (JavaScript port of rls_monitor.py core).\n * Self-contained: no dependencies. This same function body is embedded in the\n * n8n \"Scan\" Code node so the workflow needs nothing installed.\n *\n * scanSchema(sql) -> { findings, counts, hasBlocking, report }\n *\n * CLI test:  node scan.js ../samples/demo_vulnerable.sql\n */\n\nconst SEV_ORDER = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4 };\nconst MANAGED = new Set([\"storage\", \"auth\", \"realtime\", \"vault\", \"graphql\",\n  \"graphql_public\", \"extensions\", \"supabase_functions\", \"cron\"]);\nconst SENSITIVE = /(user|account|payment|invoice|patient|medical|health|message|email|token|secret|api_key|credential|order|customer|profile|subscription|billing|address|ssn|passport|dob|salary|bank)/i;\nconst SENSITIVE_COL = /(email|phone|mobile|ssn|passport|national_id|dob|birth|address|salary|iban|bank|card|payment|token|secret|api_?key|password|hash|credential|stripe|latitude|longitude|geo|location)/i;\nconst WRITE = new Set([\"ALL\", \"INSERT\", \"UPDATE\", \"DELETE\"]);\n\nfunction stripComments(sql) {\n  return sql.replace(/\\/\\*[\\s\\S]*?\\*\\//g, \" \").replace(/--[^\\n]*/g, \" \");\n}\n\n// Split on top-level ';' while respecting $$...$$ blocks and '...' strings.\nfunction splitStatements(sql) {\n  const out = [];\n  let buf = \"\", i = 0, tag = null, sq = false;\n  while (i < sql.length) {\n    const c = sql[i];\n    if (tag) {\n      if (sql.startsWith(tag, i)) { buf += tag; i += tag.length; tag = null; continue; }\n      buf += c; i++; continue;\n    }\n    if (sq) { buf += c; if (c === \"'\") sq = false; i++; continue; }\n    if (c === \"'\") { sq = true; buf += c; i++; continue; }\n    const m = sql.slice(i).match(/^\\$[A-Za-z0-9_]*\\$/);\n    if (m) { tag = m[0]; buf += tag; i += tag.length; continue; }\n    if (c === \";\") { out.push(buf); buf = \"\"; i++; continue; }\n    buf += c; i++;\n  }\n  if (buf.trim()) out.push(buf);\n  return out;\n}\n\nfunction normTable(raw) {\n  const parts = raw.trim().split(\".\").map(p => p.trim().replace(/\"/g, \"\"));\n  const bare = parts[parts.length - 1].toLowerCase();\n  const full = parts.length === 1 ? \"public.\" + bare : parts.map(p => p.toLowerCase()).join(\".\");\n  return { full, bare };\n}\n\n// Balanced-paren extraction starting at the first '(' after index `from`.\nfunction extractParen(s, from) {\n  let i = from;\n  while (i < s.length && s[i] !== \"(\") { if (!/\\s/.test(s[i])) return null; i++; }\n  if (i >= s.length) return null;\n  let depth = 0, q = false;\n  for (let j = i; j < s.length; j++) {\n    const ch = s[j];\n    if (q) { if (ch === \"'\") q = false; continue; }\n    if (ch === \"'\") q = true;\n    else if (ch === \"(\") depth++;\n    else if (ch === \")\") { depth--; if (depth === 0) return s.slice(i + 1, j).trim(); }\n  }\n  return null;\n}\n\nfunction triviallyTrue(expr) {\n  if (expr == null) return false;\n  let e = expr.trim().toLowerCase();\n  while (e.startsWith(\"(\") && e.endsWith(\")\")) e = e.slice(1, -1).trim();\n  return e === \"true\";\n}\n\nfunction parseSchema(sql) {\n  sql = stripComments(sql);\n  const rlsEnabled = new Set(), rlsDisabled = new Set();\n  const policyMap = new Map();\n  const funcs = [], tableCols = new Map();\n\n  for (const stmt of splitStatements(sql)) {\n    const s = stmt.trim(); if (!s) continue;\n    const low = s.toLowerCase();\n\n    let m = s.match(/^create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?([\\w.\"]+)/i);\n    if (m) {\n      const { full } = normTable(m[1]);\n      const body = extractParen(s, s.indexOf(\"(\"));\n      const cols = new Set();\n      if (body) for (const part of body.split(/,(?![^()]*\\))/)) {\n        const tok = part.trim().split(/\\s+/);\n        if (tok[0] && ![\"CONSTRAINT\", \"PRIMARY\", \"FOREIGN\", \"UNIQUE\", \"CHECK\", \"EXCLUDE\", \"LIKE\"].includes(tok[0].toUpperCase()))\n          cols.add(tok[0].replace(/\"/g, \"\").toLowerCase());\n      }\n      tableCols.set(full, cols);\n    }\n\n    m = low.match(/alter\\s+table\\s+(?:if\\s+exists\\s+)?(?:only\\s+)?([\\w.\"]+)\\s+enable\\s+row\\s+level\\s+security/);\n    if (m) { rlsEnabled.add(normTable(m[1]).full); continue; }\n    m = low.match(/alter\\s+table\\s+(?:if\\s+exists\\s+)?(?:only\\s+)?([\\w.\"]+)\\s+disable\\s+row\\s+level\\s+security/);\n    if (m) { rlsDisabled.add(normTable(m[1]).full); continue; }\n\n    m = s.match(/^drop\\s+policy\\s+(?:if\\s+exists\\s+)?(\"[^\"]+\"|\\w+)\\s+on\\s+([\\w.\"]+)/i);\n    if (m) { policyMap.delete(normTable(m[2]).full + \"||\" + m[1].replace(/\"/g, \"\")); continue; }\n\n    m = s.match(/^create\\s+policy\\s+(?:if\\s+not\\s+exists\\s+)?(\"[^\"]+\"|\\w+)\\s+on\\s+([\\w.\"]+)/i);\n    if (m) {\n      const name = m[1].replace(/\"/g, \"\");\n      const { full, bare } = normTable(m[2]);\n      const cmdM = s.match(/\\bfor\\s+(all|select|insert|update|delete)\\b/i);\n      const cmd = cmdM ? cmdM[1].toUpperCase() : \"ALL\";\n      let roles = null;\n      const rm = s.match(/\\bto\\s+([a-z0-9_\", ]+?)(?=\\s+using\\b|\\s+with\\s+check\\b|$)/i);\n      if (rm) roles = rm[1].split(\",\").map(r => r.trim().replace(/\"/g, \"\").toLowerCase()).filter(Boolean);\n      const uM = s.match(/\\busing\\b/i);\n      const using = uM ? extractParen(s, uM.index + uM[0].length) : null;\n      const cM = s.match(/\\bwith\\s+check\\b/i);\n      const check = cM ? extractParen(s, cM.index + cM[0].length) : null;\n      policyMap.set(full + \"||\" + name, { name, full, bare, cmd, roles, using, check });\n      continue;\n    }\n\n    if (/create\\s+(or\\s+replace\\s+)?function/.test(low) && /security\\s+definer/.test(low)) {\n      const fn = s.match(/function\\s+([\\w.\"]+)\\s*\\(/i);\n      funcs.push({ name: fn ? fn[1].replace(/\"/g, \"\") : \"<function>\", hasSearchPath: /set\\s+search_path/.test(low) });\n    }\n  }\n  return { rlsEnabled, rlsDisabled, policies: [...policyMap.values()], funcs, tableCols };\n}\n\nfunction anonReachable(roles) {\n  if (roles == null) return true;\n  return roles.some(r => r === \"anon\" || r === \"public\");\n}\n\nfunction analyze(p) {\n  const findings = [];\n  const byTable = new Map();\n  for (const pol of p.policies) { if (!byTable.has(pol.full)) byTable.set(pol.full, []); byTable.get(pol.full).push(pol); }\n\n  for (const [tbl, pols] of byTable) {\n    const schema = tbl.includes(\".\") ? tbl.split(\".\")[0] : \"public\";\n    if (MANAGED.has(schema)) continue;\n    if (!p.rlsEnabled.has(tbl) || p.rlsDisabled.has(tbl))\n      findings.push({ sev: \"CRITICAL\", rule: \"rls-off-with-policies\", object: tbl,\n        title: \"`\" + tbl + \"` has \" + pols.length + \" policy(ies) but RLS is not enabled\",\n        detail: \"Policies exist but no ENABLE ROW LEVEL SECURITY was found, so Postgres does not enforce them. The anon key can read and write every row.\",\n        fix: \"ALTER TABLE \" + tbl + \" ENABLE ROW LEVEL SECURITY;\" });\n  }\n\n  for (const pol of p.policies) {\n    const anon = anonReachable(pol.roles);\n    const cols = p.tableCols.get(pol.full) || new Set();\n    const sensCols = [...cols].filter(c => SENSITIVE_COL.test(c));\n    const sens = cols.size ? sensCols.length > 0 : SENSITIVE.test(pol.bare);\n    const write = WRITE.has(pol.cmd);\n    const checkTrue = triviallyTrue(pol.check);\n    const usingTrue = triviallyTrue(pol.using);\n\n    if (write && anon && (checkTrue || (usingTrue && [\"ALL\", \"UPDATE\", \"DELETE\"].includes(pol.cmd)))) {\n      const verb = { ALL: \"read & write\", INSERT: \"insert\", UPDATE: \"update\", DELETE: \"delete\" }[pol.cmd] || pol.cmd;\n      findings.push({ sev: \"CRITICAL\", rule: \"anon-write-true\", object: pol.full,\n        title: \"`\" + pol.name + \"` lets anyone \" + verb + \" rows on `\" + pol.full + \"`\",\n        detail: \"The \" + pol.cmd + \" policy evaluates to TRUE with no TO clause, so the public anon key can write arbitrary rows. A missing UI button is not a control.\",\n        fix: 'DROP POLICY \"' + pol.name + '\" ON ' + pol.full + \";\\n-- recreate scoped: FOR \" + pol.cmd + \" TO authenticated USING (auth.uid() = user_id)\" });\n      continue;\n    }\n    if (pol.cmd === \"SELECT\" && anon && usingTrue) {\n      findings.push({ sev: sens ? \"HIGH\" : \"MEDIUM\", rule: \"anon-read-true\", object: pol.full,\n        title: \"`\" + pol.name + \"` exposes every row of `\" + pol.full + \"` to the public\",\n        detail: \"USING (true) with no TO clause returns the whole table to unauthenticated requests. \" +\n          (sensCols.length ? \"Sensitive column(s) exposed: \" + sensCols.join(\", \") + \".\" : sens ? \"Table name suggests sensitive data.\" : \"Confirm this table is meant to be fully public.\"),\n        fix: 'DROP POLICY \"' + pol.name + '\" ON ' + pol.full + \";\\n-- recreate: FOR SELECT TO authenticated USING (auth.uid() = user_id) or a public subset\" });\n    }\n  }\n\n  for (const f of p.funcs) if (!f.hasSearchPath)\n    findings.push({ sev: \"MEDIUM\", rule: \"definer-search-path\", object: f.name,\n      title: \"`\" + f.name + \"()` is SECURITY DEFINER without a pinned search_path\",\n      detail: \"Can be hijacked via a shadowing object in a caller-controlled schema, running attacker code with the owner's rights.\",\n      fix: \"ALTER FUNCTION \" + f.name + \" SET search_path = '';\" });\n\n  findings.sort((a, b) => SEV_ORDER[a.sev] - SEV_ORDER[b.sev] || a.object.localeCompare(b.object));\n  return findings;\n}\n\nfunction scanSchema(sql) {\n  const findings = analyze(parseSchema(sql || \"\"));\n  const counts = {};\n  for (const f of findings) counts[f.sev] = (counts[f.sev] || 0) + 1;\n  const blocking = findings.filter(f => f.sev === \"CRITICAL\" || f.sev === \"HIGH\");\n  const hasBlocking = blocking.length > 0;\n  const lines = [\"RLS Guard report\", \"================\",\n    \"CRITICAL \" + (counts.CRITICAL || 0) + \"  HIGH \" + (counts.HIGH || 0) +\n    \"  MEDIUM \" + (counts.MEDIUM || 0) + \"  INFO \" + (counts.INFO || 0), \"\"];\n  if (hasBlocking) lines.push(blocking.length + \" finding(s) can leak or corrupt data. Fix before your next deploy.\", \"\");\n  findings.forEach((f, i) => {\n    lines.push((i + 1) + \". [\" + f.sev + \"] \" + f.title);\n    lines.push(\"   \" + f.detail);\n    lines.push(\"   FIX: \" + f.fix.replace(/\\n/g, \"\\n        \"), \"\");\n  });\n  return { findings, counts, hasBlocking, report: lines.join(\"\\n\") };\n}\n\n// ---- n8n entry: authenticate, validate, scan ----\nconst item = $input.first().json || {};\nconst headers = item.headers || {};\nconst query = item.query || {};\nconst body = item.body !== undefined ? item.body : item;\n\nconst EXPECTED = ($env && $env.RLS_GUARD_TOKEN) ? $env.RLS_GUARD_TOKEN : \"test-token\";\nconst token = headers[\"x-rls-token\"] || query.token ||\n              (body && typeof body === \"object\" ? body.token : \"\") || \"\";\nconst customer = headers[\"x-rls-customer\"] ||\n              (body && typeof body === \"object\" ? body.customer : \"\") || \"unknown\";\n\nif (!token || token !== EXPECTED) {\n  return [{ json: { authorized: false, customer, hasBlocking: false, counts: {},\n    report: \"401 Unauthorized: send a valid 'x-rls-token' header.\" } }];\n}\n\nlet sql = \"\";\nif (typeof body === \"string\") sql = body;\nelse if (body && typeof body === \"object\") sql = body.schema || body.sql || body.data || \"\";\nif (!sql && typeof item === \"string\") sql = item;\n\nif (!sql || !sql.trim()) {\n  return [{ json: { authorized: true, customer, hasBlocking: false, counts: {},\n    report: \"No schema received. POST the output of `supabase db dump --schema-only` as the request body.\" } }];\n}\n\nlet res;\ntry { res = scanSchema(sql); }\ncatch (e) {\n  return [{ json: { authorized: true, customer, hasBlocking: false, counts: {},\n    error: String(e && e.message || e),\n    report: \"Scan error (schema could not be parsed): \" + String(e && e.message || e) } }];\n}\nres.authorized = true;\nres.customer = customer;\nreturn [{ json: res }];\n"
+      },
+      "id": "code-scan",
+      "name": "Scan RLS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.report }}",
+        "options": {}
+      },
+      "id": "resp",
+      "name": "Respond with report",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        800,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Alert only on an authorized request that has a CRITICAL/HIGH finding.\nreturn $input.all().filter(i => i.json.authorized && i.json.hasBlocking);"
+      },
+      "id": "code-gate",
+      "name": "Only if blocking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "rls-guard@YOUR-DOMAIN.com",
+        "toEmail": "={{ $env.RLS_ALERT_EMAIL || 'ops@example.com' }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "email-alert",
+      "name": "Email alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1060,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Deploy webhook": {
+      "main": [
+        [
+          {
+            "node": "Scan RLS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scan RLS": {
+      "main": [
+        [
+          {
+            "node": "Respond with report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Only if blocking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only if blocking": {
+      "main": [
+        [
+          {
+            "node": "Email alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "id": "rlsguard",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
