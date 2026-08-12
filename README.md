@@ -36,7 +36,21 @@ but are not:
 
 Run `python rls_monitor.py --explain` for the full reasoning.
 
-## Quickstart
+## See it work in 2 seconds
+
+No database, no dump, no account — scan the bundled intentionally-vulnerable
+schema and read a real report first:
+
+```bash
+git clone https://github.com/cekuu35/supabase-rls-monitor
+cd supabase-rls-monitor
+python rls_monitor.py --demo
+```
+
+You get 4 CRITICAL + 1 HIGH findings, each with the exact fix SQL. That is the
+kind of hole an anon key can walk through in a Lovable/Bolt/Cursor app right now.
+
+## Quickstart (your own project)
 
 ```bash
 # 1. Export your schema (read-only, no data leaves your machine)
