@@ -9,6 +9,11 @@ exact SQL to fix it.
     supabase db dump --schema-only > schema.sql
     python rls_monitor.py --schema schema.sql
 
+Want to see what it catches before touching your own project? Run it against
+the bundled intentionally-vulnerable fixture - no database, no dump, no account:
+
+    python rls_monitor.py --demo
+
 Optionally scan client source for a leaked service_role key:
 
     python rls_monitor.py --schema schema.sql --src ./app
@@ -492,7 +497,21 @@ def main():
                          "(CRITICAL/HIGH/MEDIUM/none). Use in CI on each deploy.")
     ap.add_argument("--explain", action="store_true",
                     help="print the false-positive reasoning and exit")
+    ap.add_argument("--demo", action="store_true",
+                    help="scan the bundled intentionally-vulnerable sample schema "
+                         "so you can see the tool work in 2 seconds, no export needed")
     args = ap.parse_args()
+
+    if args.demo:
+        here = os.path.dirname(os.path.abspath(__file__))
+        demo_schema = os.path.join(here, "samples", "demo_vulnerable.sql")
+        demo_src = os.path.join(here, "samples", "demo_src")
+        if not os.path.exists(demo_schema):
+            ap.error("--demo needs samples/demo_vulnerable.sql next to this script")
+        if args.schema is None:
+            args.schema = demo_schema
+        if args.src is None and os.path.isdir(demo_src):
+            args.src = demo_src
 
     for stream in (sys.stdout, sys.stderr):
         try:
