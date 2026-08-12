@@ -120,3 +120,5 @@ CrewForm, after a private report of a genuine cross-tenant RLS issue, confirmed
 and shipped the fix quickly and provided a written reference as well.
 
 See `samples/sample_report.md` for what a report looks like.
+
+If RLS Monitor caught something in your schema, a ⭐ on the repo helps other developers find it.
