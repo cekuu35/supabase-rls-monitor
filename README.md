@@ -103,7 +103,20 @@ fix.
 **Order it** — the $99 Audit and up are fixed-price on [Upwork](https://www.upwork.com/services/product/2083862107074689176?utm_source=github&utm_medium=readme&utm_campaign=rls_audit&utm_content=rls_monitor) with 2-day delivery. Prefer to run it yourself? The [$29 RLS Audit Kit](https://cengokurtoglu.gumroad.com/l/supabase-rls-audit-kit?utm_source=github&utm_medium=readme&utm_campaign=rls_kit&utm_content=rls_monitor) is the same checks as commented SQL you run against your own catalogs — nothing leaves your database — and the [$19 Next.js + Supabase Launch Checklist](https://cengokurtoglu.gumroad.com/l/xjnmxt?utm_source=github&utm_medium=readme&utm_campaign=launch_checklist&utm_content=rls_monitor) is the broader go-live pass (RLS plus secrets, auth, performance and more).
 
 My RLS reports have been confirmed and fixed in production by the maintainers
-who received them, with written references (e.g. CrewForm). I audit real
-production leaks, not lab examples.
+who received them, with written references. I audit real production leaks, not
+lab examples.
+
+> "I built my AI assistant Victorio with Claude ... not having ANY idea about
+> the security aspects of this build and what it could mean for my data. Then I
+> got an email from Cenk ... I bought Cenk's checklist, and with it Claude was
+> able to plug all my security holes. I am very thankful to Cenk — he is amazing,
+> and I highly recommend all founders who are not technical to talk to him."
+>
+> — **Stan Altshuller, Founder & CEO, [Acadia.im](https://www.acadia.im)** — a
+> live anon-key leak in his AI-built Supabase app, found and fixed through
+> exactly this process.
+
+CrewForm, after a private report of a genuine cross-tenant RLS issue, confirmed
+and shipped the fix quickly and provided a written reference as well.
 
 See `samples/sample_report.md` for what a report looks like.
