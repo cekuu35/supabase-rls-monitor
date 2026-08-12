@@ -86,7 +86,8 @@ fix.
 | **Audit + Fix + Guard** | **$699** | Everything above + 30 days of re-scans after each deploy |
 | **Guard (monthly)** | **$199/mo** | Ongoing: re-scan on every deploy, policy tests, priority support |
 
-My RLS analysis has been confirmed by the Supabase security team. I audit real
+My RLS reports have been confirmed and fixed in production by the maintainers
+who received them, with written references (e.g. CrewForm). I audit real
 production leaks, not lab examples.
 
 See `samples/sample_report.md` for what a report looks like.
