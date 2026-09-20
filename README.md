@@ -102,6 +102,8 @@ fix.
 
 **Order it** — the $99 Audit and up are fixed-price on [Upwork](https://www.upwork.com/services/product/2083862107074689176?utm_source=github&utm_medium=readme&utm_campaign=rls_audit&utm_content=rls_monitor) with 2-day delivery. Prefer to run it yourself? The [$29 RLS Audit Kit](https://cengokurtoglu.gumroad.com/l/supabase-rls-audit-kit?utm_source=github&utm_medium=readme&utm_campaign=rls_kit&utm_content=rls_monitor) is the same checks as commented SQL you run against your own catalogs — nothing leaves your database. For a broader AI-assisted app release check, see the [$19 AI App Launch Pack](https://cengokurtoglu.gumroad.com/l/ai-app-launch-pack?utm_source=github&utm_medium=readme&utm_campaign=ai_app_launch_pack&utm_content=rls_monitor), covering auth, RLS, secrets, webhooks, AI/API failures, and release evidence.
 
+Launch offer: use code `LAUNCH40` for 40% off the AI App Launch Pack (first 20 purchases).
+
 My RLS reports have been confirmed and fixed in production by the maintainers
 who received them, with written references. I audit real production leaks, not
 lab examples.
