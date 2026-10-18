@@ -124,3 +124,9 @@ and shipped the fix quickly and provided a written reference as well.
 See `samples/sample_report.md` for what a report looks like.
 
 If RLS Monitor caught something in your schema, a ⭐ on the repo helps other developers find it.
+
+## Free pre-launch checklist
+
+10 checks that catch the common Next.js + Supabase launch mistakes (free, instant download): https://cengokurtoglu.gumroad.com/l/nextjs-supabase-10-checks-free
+
+More security tooling and review kits: https://cengokurtoglu.gumroad.com
