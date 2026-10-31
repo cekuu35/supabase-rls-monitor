@@ -130,3 +130,7 @@ If RLS Monitor caught something in your schema, a ⭐ on the repo helps other de
 10 checks that catch the common Next.js + Supabase launch mistakes (free, instant download): https://cengokurtoglu.gumroad.com/l/nextjs-supabase-10-checks-free
 
 More security tooling and review kits: https://cengokurtoglu.gumroad.com
+
+## License
+
+MIT — see [LICENSE](LICENSE). You are free to use, modify, and ship it in your own projects.
